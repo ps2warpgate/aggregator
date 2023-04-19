@@ -2,7 +2,6 @@ import asyncio
 import logging
 import logging.handlers
 import os
-import time
 from typing import Any, Dict, Iterator, List, Optional, Tuple, cast
 
 import aiohttp
@@ -146,22 +145,16 @@ async def _get_from_api(world_id: int) -> dict:
     return json
 
 
-async def main(
-    redis_host=REDIS_HOST,
-    redis_port=REDIS_PORT, 
-    redis_db=REDIS_DB, 
-    redis_pass=REDIS_PASS
-    ):
+async def main():
     conn = await redis.Redis(
-        host=redis_host,
-        port=redis_port,
-        db=redis_db,
-        password=redis_pass
+        host=REDIS_HOST,
+        port=REDIS_PORT,
+        db=REDIS_DB,
+        password=REDIS_PASS
     )
-    async with conn.pipline(transaction=True) as pipe:
+    async with conn.pipeline(transaction=True) as pipe:
         for i in WORLD_IDS:
             server_id = WORLD_IDS[i]
-
             async with auraxium.Client(service_id=API_KEY) as client:
                 try:
                     open_continents = await _get_open_zones(client, server_id)
@@ -192,8 +185,16 @@ async def main(
                 'tr': pop['factions']['tr'],
                 'vs': pop['factions']['vs']
             }
-
-            command = await pipe.hset(name = i, mapping = continent_status).execute()
+            db_hash = pop_response | continent_status
+            print(db_hash)
+            command = await pipe.hset(name = i, mapping = db_hash).execute()
             assert command
-            log.debug(f"Updated {i} population")
+            log.debug(f"Updated {i}")
             await asyncio.sleep(6)
+
+
+if __name__=='__main__':
+    try:
+        asyncio.run(main())
+    except asyncio.CancelledError as e:
+        raise SystemExit(e)

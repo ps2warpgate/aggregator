@@ -8,8 +8,8 @@ import aiohttp
 import auraxium
 import redis.asyncio as redis
 from dotenv import load_dotenv
-from utils import log, is_docker
 
+from utils import is_docker, log
 
 # Change secrets variables accordingly
 if is_docker() is False:  # Use .env file for secrets
@@ -153,48 +153,57 @@ async def main():
         password=REDIS_PASS
     )
     async with conn.pipeline(transaction=True) as pipe:
-        for i in WORLD_IDS:
-            server_id = WORLD_IDS[i]
-            async with auraxium.Client(service_id=API_KEY) as client:
+        while True:
+            for i in WORLD_IDS:
+                server_id = WORLD_IDS[i]
+                async with auraxium.Client(service_id=API_KEY) as client:
+                    try:
+                        open_continents = await _get_open_zones(client, server_id)
+                    except auraxium.errors.ServerError as ServerError:
+                        log.warning(ServerError)
+                        break
+                named_open_continents = []
+                for s in open_continents:
+                    named_open_continents.append(_ZONE_NAMES[s])
+                continent_status = {
+                    'Amerish': 'closed',
+                    'Esamir': 'closed',
+                    'Hossin': 'closed',
+                    'Indar': 'closed',
+                    'Oshur': 'closed',
+                }
+                for s in named_open_continents:
+                    if s in continent_status:
+                        continent_status[s] = 'open'
                 try:
-                    open_continents = await _get_open_zones(client, server_id)
-                except auraxium.errors.ServerError as ServerError:
-                    log.warning(ServerError)
-                    break
-            named_open_continents = []
-            for s in open_continents:
-                named_open_continents.append(_ZONE_NAMES[s])
-            continent_status = {
-                'Amerish': 'closed',
-                'Esamir': 'closed',
-                'Hossin': 'closed',
-                'Indar': 'closed',
-                'Oshur': 'closed',
-            }
-            for s in named_open_continents:
-                if s in continent_status:
-                    continent_status[s] = 'open'
-            try:
-                pop = await _get_from_api(world_id=WORLD_IDS[i])
-            except asyncio.exceptions.CancelledError as e:
-                raise SystemExit(e)
-            pop_response = {
-                'id': pop['id'],
-                'average': pop['average'],
-                'nc': pop['factions']['nc'],
-                'tr': pop['factions']['tr'],
-                'vs': pop['factions']['vs']
-            }
-            db_hash = pop_response | continent_status
-            print(db_hash)
-            command = await pipe.hset(name = i, mapping = db_hash).execute()
-            assert command
-            log.debug(f"Updated {i}")
-            await asyncio.sleep(6)
+                    pop = await _get_from_api(world_id=WORLD_IDS[i])
+                except asyncio.exceptions.CancelledError as e:
+                    raise SystemExit(e)
+                json_obj = {
+                    "id": pop['id'],
+                    "population": {
+                        "total": pop['average'],
+                        "nc": pop['factions']['nc'],
+                        "tr": pop['factions']['tr'],
+                        "vs": pop['factions']['vs']
+                    },
+                    "continents": {
+                        "Amerish": continent_status['Amerish'],
+                        "Esamir": continent_status['Esamir'],
+                        "Hossin": continent_status['Hossin'],
+                        "Indar": continent_status['Indar'],
+                        "Oshur": continent_status['Oshur']
+                    }
+                }
+                command = await pipe.json().set(i, ".", json_obj).execute()
+                assert command
+                log.debug(f"Updated {i}")
+                await asyncio.sleep(6)
+            await asyncio.sleep(30)   
 
 
 if __name__=='__main__':
     try:
         asyncio.run(main())
-    except asyncio.CancelledError as e:
+    except asyncio.exceptions.CancelledError as e:
         raise SystemExit(e)

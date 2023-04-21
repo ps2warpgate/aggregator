@@ -162,6 +162,9 @@ async def main():
                     except auraxium.errors.ServerError as ServerError:
                         log.warning(ServerError)
                         break
+                    except RuntimeError as re:
+                        log.error(re)
+                        break
                 named_open_continents = []
                 for s in open_continents:
                     named_open_continents.append(_ZONE_NAMES[s])

@@ -6,7 +6,7 @@ from typing import Dict
 
 import auraxium
 import redis.asyncio as redis
-from auraxium import event
+from auraxium import event, ps2
 from auraxium.endpoints import NANITE_SYSTEMS
 from dotenv import load_dotenv
 
@@ -74,6 +74,7 @@ async def main() -> None:
             log.info("Event recieved")
 
             print(f"""
+            ESS Data:
             Event ID: {evt.metagame_event_id}
             State: {evt.metagame_event_state} ({evt.metagame_event_state_name})
             World: {evt.world_id} ({WORLD_NAMES[evt.world_id]})
@@ -83,6 +84,16 @@ async def main() -> None:
             VS: {evt.faction_vs}
             XP Bonus: {evt.experience_bonus}
             Timestamp: {evt.timestamp}
+            """)
+            rest_data = await client.get_by_id(ps2.MetagameEvent, evt.metagame_event_id)
+
+            print(f"""
+            REST Data:
+            Event ID: {rest_data.id}
+            Event Name: {rest_data.name}
+            Description: {rest_data.description}
+            Type: {rest_data.type}
+            XP Bonus: {rest_data.experience_bonus}
             """)
     
     _ = metagame_event

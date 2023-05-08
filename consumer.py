@@ -1,5 +1,4 @@
 import asyncio
-import sys
 
 
 from aio_pika import ExchangeType, connect
@@ -20,14 +19,6 @@ async def main():
         channel = await connection.channel()
         await channel.set_qos(prefetch_count=1)
 
-        severities = sys.argv[1:]
-
-        if not severities:
-            sys.stderr.write(
-                f"Usage: {sys.argv[0]} [info] [warning] [error]\n"
-            )
-            sys.exit(1)
-
         # Declare exchange
         event_exchange = await channel.declare_exchange(
             name='events',
@@ -37,8 +28,7 @@ async def main():
         # Declare random queue
         queue = await channel.declare_queue(durable=True)
 
-        for severity in severities:
-            await queue.bind(exchange=event_exchange, routing_key=severity)
+        await queue.bind(exchange=event_exchange, routing_key='metagame')
 
         # Start listening the random queue
         await queue.consume(callback=on_message)

@@ -3,12 +3,13 @@ import logging
 import logging.handlers
 import os
 from typing import Dict
+import json
 
 import auraxium
-import redis.asyncio as redis
 from auraxium import event, ps2
 from auraxium.endpoints import NANITE_SYSTEMS
 from dotenv import load_dotenv
+from aio_pika import DeliveryMode, ExchangeType, Message, connect
 
 from utils import is_docker, CustomFormatter
 
@@ -25,7 +26,7 @@ REDIS_DB = os.getenv('REDIS_DB') or 0
 REDIS_PASS = os.getenv('REDIS_PASS') or None
 
 
-log = logging.getLogger(__name__)
+log = logging.getLogger('metagame')
 log.setLevel(LOG_LEVEL)
 handler = logging.StreamHandler()
 handler.setFormatter(CustomFormatter())
@@ -67,7 +68,29 @@ METAGAME_STATES: Dict[int, str] = {
 }
 
 
+async def sendMessage(event_data: str):
+    connection = await connect('amqp://guest:guest@192.168.2.202:5672/')
+    
+    async with connection:
+        channel = await connection.channel()
+
+        event_exchange = await channel.declare_exchange(
+            name = 'events',
+            type = ExchangeType.DIRECT,
+        )
+
+        message = Message(
+            body = event_data,
+            content_encoding = 'application/json',
+            delivery_mode = DeliveryMode.PERSISTENT,
+        )
+        log.info('Sending event')
+        await event_exchange.publish(message=message, routing_key='metagame')
+
+
 async def main() -> None:
+    await sendMessage(b'test message')
+
     async with auraxium.EventClient(service_id=API_KEY, ess_endpoint=NANITE_SYSTEMS) as client:
         @client.trigger(event.MetagameEvent)
         async def metagame_event(evt: event.MetagameEvent) -> None:
@@ -85,16 +108,33 @@ async def main() -> None:
             XP Bonus: {evt.experience_bonus}
             Timestamp: {evt.timestamp}
             """)
-            rest_data = await client.get_by_id(ps2.MetagameEvent, evt.metagame_event_id)
+            # rest_data = await client.get_by_id(ps2.MetagameEvent, evt.metagame_event_id)
 
-            print(f"""
-            REST Data:
-            Event ID: {rest_data.id}
-            Event Name: {rest_data.name}
-            Description: {rest_data.description}
-            Type: {rest_data.type}
-            XP Bonus: {rest_data.experience_bonus}
-            """)
+            # print(f"""
+            # REST Data:
+            # Event ID: {rest_data.id}
+            # Event Name: {rest_data.name}
+            # Description: {rest_data.description}
+            # Type: {rest_data.type}
+            # XP Bonus: {rest_data.experience_bonus}
+            # """)
+            # event data as json object
+
+            event_data = {
+                'id': evt.metagame_event_id,
+                'state': evt.metagame_event_state_name,
+                'world': evt.world_id,
+                'zone': evt.zone_id,
+                'nc': evt.faction_nc,
+                'tr': evt.faction_tr,
+                'vs': evt.faction_vs,
+                'xp': evt.experience_bonus,
+                'timestamp': evt.timestamp.timestamp()
+            }
+            # Convert to string
+            json_event = json.dumps(event_data)
+            
+            await sendMessage(bytes(json_event, encoding='utf-8'))
     
     _ = metagame_event
 

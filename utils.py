@@ -38,17 +38,10 @@ class CustomFormatter(logging.Formatter):  # Formatter
         dt_fmt = '%m/%d/%Y %I:%M:%S'
         formatter = logging.Formatter(log_fmt, dt_fmt)
         return formatter.format(record)
-    
+
 
 # log = logging.getLogger()
 # log.setLevel(LOG_LEVEL)
 # handler = logging.StreamHandler()
 # handler.setFormatter(CustomFormatter())
 # log.addHandler(handler)
-
-
-log = logging.getLogger()
-log.setLevel(LOG_LEVEL)
-handler = logging.StreamHandler()
-handler.setFormatter(CustomFormatter())
-log.addHandler(handler)

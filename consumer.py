@@ -8,6 +8,8 @@ from aio_pika.abc import AbstractIncomingMessage
 async def on_message(message: AbstractIncomingMessage) -> None:
     async with message.process():
         print(f" [x] {message.routing_key}: {message.body}")
+        # do things
+        # await message.ack()
 
 
 async def main():

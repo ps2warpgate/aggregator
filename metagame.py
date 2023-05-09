@@ -11,7 +11,8 @@ from auraxium.endpoints import NANITE_SYSTEMS
 from dotenv import load_dotenv
 from aio_pika import DeliveryMode, ExchangeType, Message, connect
 
-from utils import is_docker, CustomFormatter
+# from utils import is_docker, CustomFormatter
+from constants.utils import is_docker, CustomFormatter
 
 # Change secrets variables accordingly
 if is_docker() is False:  # Use .env file for secrets
@@ -24,22 +25,14 @@ REDIS_HOST = os.getenv('REDIS_HOST') or 'localhost'
 REDIS_PORT = os.getenv('REDIS_PORT') or 6379
 REDIS_DB = os.getenv('REDIS_DB') or 0
 REDIS_PASS = os.getenv('REDIS_PASS') or None
+RABBITMQ_URL = os.getenv('RABBITMQ_URL') or None
 
 
-log = logging.getLogger('metagame')
+log = logging.getLogger('auraxium')
 log.setLevel(LOG_LEVEL)
 handler = logging.StreamHandler()
 handler.setFormatter(CustomFormatter())
 log.addHandler(handler)
-
-
-auraxium_log = logging.getLogger('auraxium')
-auraxium_log.setLevel(LOG_LEVEL)
-
-# if LOG_LEVEL == 'INFO':
-#     auraxium_log.setLevel(logging.WARNING)
-# else:
-#     auraxium_log.setLevel(LOG_LEVEL)
 
 
 WORLD_NAMES: Dict[int, str] = {
@@ -69,7 +62,7 @@ METAGAME_STATES: Dict[int, str] = {
 
 
 async def sendMessage(event_data: str):
-    connection = await connect('amqp://guest:guest@192.168.2.202:5672/')
+    connection = await connect(RABBITMQ_URL)
     
     async with connection:
         channel = await connection.channel()
@@ -86,11 +79,10 @@ async def sendMessage(event_data: str):
         )
         log.info('Sending event')
         await event_exchange.publish(message=message, routing_key='metagame')
+        log.info(f'Message was: {message.body}')
 
 
 async def main() -> None:
-    await sendMessage(b'test message')
-
     async with auraxium.EventClient(service_id=API_KEY, ess_endpoint=NANITE_SYSTEMS) as client:
         @client.trigger(event.MetagameEvent)
         async def metagame_event(evt: event.MetagameEvent) -> None:

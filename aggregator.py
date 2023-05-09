@@ -9,7 +9,7 @@ import auraxium
 import redis.asyncio as redis
 from dotenv import load_dotenv
 
-from utils import is_docker, CustomFormatter
+from constants.utils import is_docker, CustomFormatter
 
 # Change secrets variables accordingly
 if is_docker() is False:  # Use .env file for secrets

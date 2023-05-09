@@ -9,7 +9,7 @@ import auraxium
 import redis.asyncio as redis
 from dotenv import load_dotenv
 
-from utils import is_docker, log
+from utils import is_docker, CustomFormatter
 
 # Change secrets variables accordingly
 if is_docker() is False:  # Use .env file for secrets
@@ -23,6 +23,12 @@ REDIS_PORT = os.getenv('REDIS_PORT') or 6379
 REDIS_DB = os.getenv('REDIS_DB') or 0
 REDIS_PASS = os.getenv('REDIS_PASS') or None
 
+
+log = logging.getLogger('metagame')
+log.setLevel(LOG_LEVEL)
+handler = logging.StreamHandler()
+handler.setFormatter(CustomFormatter())
+log.addHandler(handler)
 
 auraxium_log = logging.getLogger('auraxium')
 

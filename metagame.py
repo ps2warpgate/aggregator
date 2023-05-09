@@ -6,7 +6,7 @@ from typing import Dict
 import json
 
 import auraxium
-from auraxium import event, ps2
+from auraxium import event
 from auraxium.endpoints import NANITE_SYSTEMS
 from dotenv import load_dotenv
 from aio_pika import DeliveryMode, ExchangeType, Message, connect

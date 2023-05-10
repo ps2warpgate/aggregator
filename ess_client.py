@@ -4,6 +4,7 @@ import logging.handlers
 import os
 from typing import Dict
 import json
+import redis.asyncio as redis
 
 import auraxium
 from auraxium import event
@@ -61,11 +62,21 @@ METAGAME_STATES: Dict[int, str] = {
 }
 
 
-async def sendMessage(event_data: str):
-    connection = await connect(RABBITMQ_URL)
+async def save_event(event_data: dict) -> None:
+    r = await redis.Redis(
+        host=REDIS_HOST,
+        port=REDIS_PORT,
+        db=REDIS_DB,
+        password=REDIS_PASS
+    )
+    r
+
+
+async def send_message(event_data: str) -> None:
+    rabbit = await connect(RABBITMQ_URL)
     
-    async with connection:
-        channel = await connection.channel()
+    async with rabbit:
+        channel = await rabbit.channel()
 
         event_exchange = await channel.declare_exchange(
             name = 'events',
@@ -126,7 +137,7 @@ async def main() -> None:
             # Convert to string
             json_event = json.dumps(event_data)
             
-            await sendMessage(bytes(json_event, encoding='utf-8'))
+            await send_message(bytes(json_event, encoding='utf-8'))
     
     _ = metagame_event
 

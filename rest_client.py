@@ -156,8 +156,7 @@ async def main():
     conn = await redis.Redis(
         host=REDIS_HOST,
         port=REDIS_PORT,
-        # db=REDIS_DB,
-        db=2,
+        db=REDIS_DB,
         password=REDIS_PASS
     )
     async with conn.pipeline(transaction=True) as pipe:

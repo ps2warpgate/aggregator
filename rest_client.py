@@ -9,7 +9,7 @@ import auraxium
 import redis.asyncio as redis
 from dotenv import load_dotenv
 
-from utils import is_docker, log
+from constants.utils import is_docker, CustomFormatter
 
 # Change secrets variables accordingly
 if is_docker() is False:  # Use .env file for secrets
@@ -23,6 +23,12 @@ REDIS_PORT = os.getenv('REDIS_PORT') or 6379
 REDIS_DB = os.getenv('REDIS_DB') or 0
 REDIS_PASS = os.getenv('REDIS_PASS') or None
 
+
+log = logging.getLogger('rest_client')
+log.setLevel(LOG_LEVEL)
+handler = logging.StreamHandler()
+handler.setFormatter(CustomFormatter())
+log.addHandler(handler)
 
 auraxium_log = logging.getLogger('auraxium')
 
@@ -146,6 +152,7 @@ async def _get_from_api(world_id: int) -> dict:
 
 
 async def main():
+    log.info('Started REST client')
     conn = await redis.Redis(
         host=REDIS_HOST,
         port=REDIS_PORT,
@@ -205,8 +212,14 @@ async def main():
             await asyncio.sleep(30)   
 
 
-if __name__=='__main__':
-    try:
-        asyncio.run(main())
-    except asyncio.exceptions.CancelledError as e:
-        raise SystemExit(e)
+try:
+    asyncio.run(main())
+except asyncio.exceptions.CancelledError as e:
+    raise SystemExit(e)
+
+
+# if __name__=='__main__':
+#     try:
+#         asyncio.run(main())
+#     except asyncio.exceptions.CancelledError as e:
+#         raise SystemExit(e)

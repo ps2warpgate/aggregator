@@ -165,7 +165,12 @@ async def main() -> None:
     _ = on_metagame_event
 
 
-if __name__ == '__main__':
-    loop = asyncio.new_event_loop()
-    loop.create_task(main())
-    loop.run_forever()
+loop = asyncio.new_event_loop()
+loop.create_task(main())
+loop.run_forever()
+
+
+# if __name__ == '__main__':
+#     loop = asyncio.new_event_loop()
+#     loop.create_task(main())
+#     loop.run_forever()

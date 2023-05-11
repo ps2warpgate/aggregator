@@ -12,6 +12,7 @@ from auraxium.endpoints import NANITE_SYSTEMS
 from dotenv import load_dotenv
 from aio_pika import DeliveryMode, ExchangeType, Message, connect
 
+
 # from utils import is_docker, CustomFormatter
 from constants.utils import is_docker, CustomFormatter
 
@@ -62,14 +63,27 @@ METAGAME_STATES: Dict[int, str] = {
 }
 
 
-async def save_event(event_data: dict) -> None:
-    r = await redis.Redis(
-        host=REDIS_HOST,
-        port=REDIS_PORT,
-        db=REDIS_DB,
-        password=REDIS_PASS
-    )
-    r
+class Alert:
+    def __init__(self) -> None:
+        self.is_ready = False
+
+    async def setup(self):
+        self.redis_conn = await redis.Redis(
+            host=REDIS_HOST,
+            port=REDIS_PORT,
+            db=REDIS_DB,
+            password=REDIS_PASS
+        )
+        self.is_ready = True
+
+    async def create(self, world: str, instance_id: int, event_json: str):
+        await self.redis_conn.hset(name=world, key=instance_id, value=event_json)
+
+    async def remove(self, world: str, instance_id: int):
+        await self.redis_conn.hdel(world, instance_id)
+
+
+alert = Alert()
 
 
 async def send_message(event_data: str) -> None:
@@ -94,13 +108,17 @@ async def send_message(event_data: str) -> None:
 
 
 async def main() -> None:
+    if not alert.is_ready:
+        await alert.setup()
+    
     async with auraxium.EventClient(service_id=API_KEY, ess_endpoint=NANITE_SYSTEMS) as client:
         @client.trigger(event.MetagameEvent)
-        async def metagame_event(evt: event.MetagameEvent) -> None:
+        async def on_metagame_event(evt: event.MetagameEvent) -> None:
             log.info("Event recieved")
 
             print(f"""
             ESS Data:
+            Instance ID: {evt.instance_id}
             Event ID: {evt.metagame_event_id}
             State: {evt.metagame_event_state} ({evt.metagame_event_state_name})
             World: {evt.world_id} ({WORLD_NAMES[evt.world_id]})
@@ -111,20 +129,10 @@ async def main() -> None:
             XP Bonus: {evt.experience_bonus}
             Timestamp: {evt.timestamp}
             """)
-            # rest_data = await client.get_by_id(ps2.MetagameEvent, evt.metagame_event_id)
 
-            # print(f"""
-            # REST Data:
-            # Event ID: {rest_data.id}
-            # Event Name: {rest_data.name}
-            # Description: {rest_data.description}
-            # Type: {rest_data.type}
-            # XP Bonus: {rest_data.experience_bonus}
-            # """)
             # event data as json object
-
             event_data = {
-                'id': evt.metagame_event_id,
+                'event_id': evt.metagame_event_id,
                 'state': evt.metagame_event_state_name,
                 'world': evt.world_id,
                 'zone': evt.zone_id,
@@ -138,8 +146,23 @@ async def main() -> None:
             json_event = json.dumps(event_data)
             
             await send_message(bytes(json_event, encoding='utf-8'))
+
+            if evt.metagame_event_state_name == 'started':
+                await alert.create(
+                    world=WORLD_NAMES[evt.world_id], 
+                    instance_id=evt.instance_id, 
+                    event_json=json_event
+                )
+                log.info(f'Created alert {evt.instance_id}')
+            elif evt.metagame_event_state_name == 'ended' or 'cancelled':
+                await alert.remove(
+                    world=WORLD_NAMES[evt.world_id],
+                    instance_id=evt.instance_id,
+                )
+                log.info(f'Removed alert {evt.instance_id}')
+
     
-    _ = metagame_event
+    _ = on_metagame_event
 
 
 if __name__ == '__main__':

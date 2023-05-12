@@ -24,7 +24,7 @@ REDIS_DB = os.getenv('REDIS_DB') or 0
 REDIS_PASS = os.getenv('REDIS_PASS') or None
 
 
-log = logging.getLogger('rest_client')
+log = logging.getLogger('rest')
 log.setLevel(LOG_LEVEL)
 handler = logging.StreamHandler()
 handler.setFormatter(CustomFormatter())

@@ -81,7 +81,7 @@ async def main() -> None:
         async def on_metagame_event(evt: event.MetagameEvent) -> None:
             log.info(f'Received {evt.event_name} id: {evt.world_id}-{evt.instance_id}')
 
-            print(f"""
+            log.debug(f"""
             ESS Data:
             Instance ID: {evt.instance_id}
             Event ID: {evt.metagame_event_id}
@@ -112,7 +112,7 @@ async def main() -> None:
             
             # Publish to RabbitMQ
             await rabbit.publish(bytes(json_event, encoding='utf-8'))
-            log.info('Published event')
+            log.info(f'Event {evt.world_id}-{evt.instance_id} published')
 
             # Add or remove from database
             if evt.metagame_event_state_name == 'started':

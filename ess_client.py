@@ -10,8 +10,9 @@ from auraxium import event
 from auraxium.endpoints import NANITE_SYSTEMS
 from dotenv import load_dotenv
 
+from constants.typings import UniqueEventId
 from constants.utils import CustomFormatter, is_docker
-from services import Alert, Rabbit
+from services import Alert2, Rabbit
 
 # Change secrets variables accordingly
 if is_docker() is False:  # Use .env file for secrets
@@ -23,6 +24,8 @@ API_KEY = os.getenv('API_KEY') or 's:example'
 LOG_LEVEL = os.getenv('LOG_LEVEL') or 'INFO'
 RABBITMQ_URL = os.getenv('RABBITMQ_URL') or None
 REDIS_URL = os.getenv('REDIS_URL') or None
+MONGODB_URL = os.getenv('MONGODB_URL') or None
+RABBITMQ_ENABLED = os.getenv('RABBITMQ_ENABLED') or 'True'
 
 
 log = logging.getLogger('ess')
@@ -59,27 +62,40 @@ METAGAME_STATES: Dict[int, str] = {
 
 
 rabbit = Rabbit()
-alert = Alert()
+alert = Alert2()
 
 
 async def main() -> None:
     log.info(f'Starting ESS client version: {APP_VERSION}')
     log.info('Starting Services...')
-    if not rabbit.is_ready:
-        await rabbit.setup(RABBITMQ_URL)
-    
-    log.info('RabbitMQ Service ready!')
+    if RABBITMQ_ENABLED == 'True':
+        if not rabbit.is_ready:
+            await rabbit.setup(RABBITMQ_URL)
+        
+        log.info('RabbitMQ Service ready!')
+    else:
+        log.info('RabbitMQ Service disabled by user')
 
     if not alert.is_ready:
-        await alert.setup(REDIS_URL)
+        # await alert.setup(REDIS_URL)
+        await alert.setup(
+            mongodb_url=MONGODB_URL,
+            db='warpgate_dev',
+            collection='alerts',
+        )
     
     log.info('Alert Service ready!')
 
     async with auraxium.EventClient(service_id=API_KEY, ess_endpoint=NANITE_SYSTEMS) as client:
         log.info('Listening for Census Events...')
+        
         @client.trigger(event.MetagameEvent)
         async def on_metagame_event(evt: event.MetagameEvent) -> None:
-            log.info(f'Received {evt.event_name} id: {evt.world_id}-{evt.instance_id}')
+            unique_id = str(UniqueEventId(evt.world_id, evt.instance_id))
+
+            log.info(
+                f'Received {evt.event_name} id: {unique_id}'
+            )
 
             log.debug(f"""
             ESS Data:
@@ -97,10 +113,11 @@ async def main() -> None:
 
             # event data as json object
             event_data = {
+                '_id': unique_id,
                 'event_id': evt.metagame_event_id,
                 'state': evt.metagame_event_state_name,
-                'world': evt.world_id,
-                'zone': evt.zone_id,
+                'world_id': evt.world_id,
+                'zone_id': evt.zone_id,
                 'nc': evt.faction_nc,
                 'tr': evt.faction_tr,
                 'vs': evt.faction_vs,
@@ -111,23 +128,28 @@ async def main() -> None:
             json_event = json.dumps(event_data)
             
             # Publish to RabbitMQ
-            await rabbit.publish(bytes(json_event, encoding='utf-8'))
-            log.info(f'Event {evt.world_id}-{evt.instance_id} published')
+            if RABBITMQ_ENABLED == 'True':
+                await rabbit.publish(bytes(json_event, encoding='utf-8'))
+                log.info(f'Event {unique_id} published')
 
             # Add or remove from database
             if evt.metagame_event_state_name == 'started':
-                await alert.create(
-                    world=WORLD_NAMES[evt.world_id], 
-                    instance_id=evt.instance_id, 
-                    event_json=json_event
-                )
-                log.info(f'Created alert {evt.world_id}-{evt.instance_id}')
-            elif evt.metagame_event_state_name == 'ended' or 'cancelled':
-                await alert.remove(
-                    world=WORLD_NAMES[evt.world_id],
-                    instance_id=evt.instance_id,
-                )
-                log.info(f'Removed alert {evt.world_id}-{evt.instance_id}')
+                # await alert.create(
+                #     world=WORLD_NAMES[evt.world_id], 
+                #     instance_id=evt.instance_id, 
+                #     event_json=json_event
+                # )
+                result = await alert.create(event_data)
+
+                log.info(f'Created alert with id: {result}')
+            if evt.metagame_event_state_name == 'ended' or 'cancelled':
+                # await alert.remove(
+                #     world=WORLD_NAMES[evt.world_id],
+                #     instance_id=evt.instance_id,
+                # )
+                await alert.remove(id=unique_id)
+
+                log.info(f'Removed alert {unique_id}')
 
     
     _ = on_metagame_event

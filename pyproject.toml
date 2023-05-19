@@ -55,3 +55,26 @@ target-version = "py311"
 [tool.ruff.mccabe]
 # Unlike Flake8, default to a complexity level of 10.
 max-complexity = 10
+[tool.poetry]
+name = "aggregator"
+version = "1.0.0"
+description = ""
+authors = ["wupasscat <wupasscat10@gmail.com>"]
+license = "GNU General Public License v3.0"
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.11"
+aiohttp = "^3.8.4"
+auraxium = "^0.2.3"
+python-dotenv = "^1.0.0"
+motor = "^3.1.2"
+
+[tool.poetry.group.dev.dependencies]
+ruff = "^0.0.269"
+pytest = "^7.3.1"
+pre-commit = "^3.3.2"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

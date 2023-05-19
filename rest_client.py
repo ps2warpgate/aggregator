@@ -155,7 +155,7 @@ async def get_population(world_id: int) -> dict:
 
     population = models.WorldPopulation(
         world_id=json['id'],
-        average=json['average'],
+        total=json['average'],
         nc=json['factions']['nc'],
         tr=json['factions']['tr'],
         vs=json['factions']['vs'],

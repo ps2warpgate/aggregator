@@ -1,14 +1,15 @@
 import asyncio
-import logging
 import logging.handlers
 import os
 from typing import Any, Dict, Iterator, List, Optional, Tuple, cast
 
 import aiohttp
 import auraxium
-import redis.asyncio as redis
+from motor import motor_asyncio
 from dotenv import load_dotenv
+from dataclasses import asdict
 
+from constants import models
 from constants.utils import is_docker, CustomFormatter
 
 # Change secrets variables accordingly
@@ -16,28 +17,18 @@ if is_docker() is False:  # Use .env file for secrets
     load_dotenv()
 
 
-API_KEY = os.getenv('API_KEY') or 's:example'
-LOG_LEVEL = os.getenv('LOG_LEVEL') or 'INFO'
-REDIS_HOST = os.getenv('REDIS_HOST') or 'localhost'
-REDIS_PORT = os.getenv('REDIS_PORT') or 6379
-REDIS_DB = os.getenv('REDIS_DB') or 0
-REDIS_PASS = os.getenv('REDIS_PASS') or None
+APP_VERSION = os.getenv('APP_VERSION', 'dev')
+API_KEY = os.getenv('API_KEY', 's:example')
+LOG_LEVEL = os.getenv('LOG_LEVEL', 'INFO')
+MONGODB_URL = os.getenv('MONGODB_URL', 'mongodb://localhost:27017')
+MONGODB_DB = os.getenv('MONGODB_DB', 'warpgate')
 
 
-log = logging.getLogger('rest')
+log = logging.getLogger('aggregator')
 log.setLevel(LOG_LEVEL)
 handler = logging.StreamHandler()
 handler.setFormatter(CustomFormatter())
 log.addHandler(handler)
-
-auraxium_log = logging.getLogger('auraxium')
-
-if LOG_LEVEL == 'INFO':
-    auraxium_log.setLevel(logging.WARNING)
-else:
-    auraxium_log.setLevel(LOG_LEVEL)
-
-auraxium_log.addHandler(logging.StreamHandler)
 
 
 # Server IDs
@@ -51,7 +42,7 @@ WORLD_IDS = {
 }
 
 # A mapping of zone IDs to the region IDs of their warpgates
-_WARPGATE_IDS: Dict[int, List[int]] = {
+_WARPGATE_IDS: dict[int, List[int]] = {
     # Indar
     2: [
         2201,  # Northern Warpgate
@@ -85,12 +76,12 @@ _WARPGATE_IDS: Dict[int, List[int]] = {
 }
 
 # A mapping of zone IDs to their names since Oshur is not in the API
-_ZONE_NAMES: Dict[int, str] = {
-    2: "Indar",
-    4: "Hossin",
-    6: "Amerish",
-    8: "Esamir",
-    344: "Oshur",
+_ZONE_NAMES: dict[int, str] = {
+    2: "indar",
+    4: "hossin",
+    6: "amerish",
+    8: "esamir",
+    344: "oshur",
 }
 
 
@@ -141,85 +132,81 @@ async def _get_open_zones(client: auraxium.Client, world_id: int) -> List[int]:
     return open_zones
 
 
-# Get population data from agg.ps2.live
-async def _get_from_api(world_id: int) -> dict:
+async def get_continents(world_id: int) -> dict:
+    """Get continent states from census"""
+    async with auraxium.Client(service_id=API_KEY) as client:
+        open_zones = await _get_open_zones(client, world_id)
+        zone_states = asdict(models.WorldZones(world_id))
+        named_open_zones: list[str] = []
+        for i in open_zones:
+            named_open_zones.append(_ZONE_NAMES[i])
+        for zone in named_open_zones:
+            zone_states[zone] = 'open'
+    return zone_states
+
+
+async def get_population(world_id: int) -> dict:
+    """Get population data from https://agg.ps2.live"""
     url = f'https://agg.ps2.live/population/{world_id}'
     async with aiohttp.ClientSession() as session:
         async with session.get(url) as response:
             log.debug(response.raise_for_status())
             json = await response.json()
-    return json
 
-
-async def main():
-    log.info('Started REST client')
-    conn = await redis.Redis(
-        host=REDIS_HOST,
-        port=REDIS_PORT,
-        db=REDIS_DB,
-        password=REDIS_PASS
+    population = models.WorldPopulation(
+        world_id=json['id'],
+        average=json['average'],
+        nc=json['factions']['nc'],
+        tr=json['factions']['tr'],
+        vs=json['factions']['vs'],
     )
-    async with conn.pipeline(transaction=True) as pipe:
-        while True:
-            for i in WORLD_IDS:
-                server_id = WORLD_IDS[i]
-                async with auraxium.Client(service_id=API_KEY) as client:
-                    try:
-                        open_continents = await _get_open_zones(client, server_id)
-                    except auraxium.errors.ServerError as ServerError:
-                        log.warning(ServerError)
-                        break
-                    except RuntimeError as re:
-                        log.error(re)
-                        break
-                named_open_continents = []
-                for s in open_continents:
-                    named_open_continents.append(_ZONE_NAMES[s])
-                continent_status = {
-                    'Amerish': 'closed',
-                    'Esamir': 'closed',
-                    'Hossin': 'closed',
-                    'Indar': 'closed',
-                    'Oshur': 'closed',
-                }
-                for s in named_open_continents:
-                    if s in continent_status:
-                        continent_status[s] = 'open'
-                try:
-                    pop = await _get_from_api(world_id=WORLD_IDS[i])
-                except asyncio.exceptions.CancelledError as e:
-                    raise SystemExit(e)
-                json_obj = {
-                    "id": pop['id'],
-                    "population": {
-                        "total": pop['average'],
-                        "nc": pop['factions']['nc'],
-                        "tr": pop['factions']['tr'],
-                        "vs": pop['factions']['vs']
-                    },
-                    "continents": {
-                        "Amerish": continent_status['Amerish'],
-                        "Esamir": continent_status['Esamir'],
-                        "Hossin": continent_status['Hossin'],
-                        "Indar": continent_status['Indar'],
-                        "Oshur": continent_status['Oshur']
-                    }
-                }
-                command = await pipe.json().set(i, ".", json_obj).execute()
-                assert command
-                log.debug(f"Updated {i}")
-                await asyncio.sleep(6)
-            await asyncio.sleep(30)   
+    return asdict(population)
 
 
-try:
-    asyncio.run(main())
-except asyncio.exceptions.CancelledError as e:
-    raise SystemExit(e)
+async def main() -> None:
+    log.info(f'Starting aggregator version {APP_VERSION}')
+
+    client = motor_asyncio.AsyncIOMotorClient(MONGODB_URL)
+    db = client[MONGODB_DB]
+    db.continents.create_index([('world_id', 1)], unique=True, background=True)
+    db.population.create_index([('world_id', 1)], unique=True, background=True)
+    while True:
+        continent_data: list[dict] = []
+        population_data: list[dict] = []
+
+        log.info('fetching data...')
+
+        for i in WORLD_IDS.values():
+            continent_data.append(await get_continents(i))
+            population_data.append(await get_population(i))
+
+        log.info('data fetched, updating database...')
+
+        for data in continent_data:
+            result = await db.continents.update_many(
+                filter={'world_id': data['world_id']},
+                update={'$set': data},
+                upsert=False,
+                hint=[('world_id', 1)]
+            )
+            log.debug(f'matched {result.matched_count}, modified {result.modified_count}')
+
+        for data in population_data:
+            result = await db.population.update_many(
+                filter={'world_id': data['world_id']},
+                update={'$set': data},
+                upsert=False,
+                hint=[('world_id', 1)]
+            )
+            log.debug(f'matched {result.matched_count}, modified {result.modified_count}')
+
+        log.info('database updated!')
+
+        await asyncio.sleep(60)
 
 
-# if __name__=='__main__':
-#     try:
-#         asyncio.run(main())
-#     except asyncio.exceptions.CancelledError as e:
-#         raise SystemExit(e)
+if __name__ == '__main__':
+    try:
+        asyncio.run(main())
+    except asyncio.exceptions.CancelledError:
+        pass
